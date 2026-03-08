@@ -1,3 +1,4 @@
+import logging
 import os
 import uuid
 
@@ -7,9 +8,11 @@ from config import settings
 from models import DeleteResponse, DocumentInfo, IngestResponse
 from services import chunker, embeddings, loaders, vector_store
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 ALLOWED_EXTENSIONS = {".pdf", ".txt", ".md"}
+MAX_UPLOAD_BYTES = settings.max_upload_size_mb * 1024 * 1024
 
 
 @router.post("/upload", response_model=IngestResponse)
@@ -22,20 +25,25 @@ async def upload_document(file: UploadFile):
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(
             status_code=400,
-            detail=f"Unsupported file type: {ext}. Allowed: {ALLOWED_EXTENSIONS}",
+            detail=f"Unsupported file type: {ext}. Allowed: {', '.join(ALLOWED_EXTENSIONS)}",
         )
 
-    # Save uploaded file
+    # Read with size limit
+    content = await file.read()
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large. Max size: {settings.max_upload_size_mb}MB",
+        )
+
     doc_id = str(uuid.uuid4())
     os.makedirs(settings.upload_dir, exist_ok=True)
     file_path = os.path.join(settings.upload_dir, f"{doc_id}_{file.filename}")
 
-    content = await file.read()
     with open(file_path, "wb") as f:
         f.write(content)
 
     try:
-        # Load text based on file type
         if ext == ".pdf":
             text, metadata = loaders.load_pdf(file_path)
         else:
@@ -44,20 +52,17 @@ async def upload_document(file: UploadFile):
         if not text.strip():
             raise HTTPException(status_code=400, detail="Document contains no text")
 
-        # Chunk
         chunks = chunker.split_text(
             text,
             chunk_size=settings.chunk_size,
             chunk_overlap=settings.chunk_overlap,
         )
 
-        # Embed (batch in groups of 100)
         all_embeddings = []
         for i in range(0, len(chunks), 100):
             batch = chunks[i : i + 100]
             all_embeddings.extend(embeddings.embed_texts(batch))
 
-        # Store
         chunk_count = vector_store.add_document(
             doc_id=doc_id,
             chunks=chunks,
@@ -65,6 +70,7 @@ async def upload_document(file: UploadFile):
             metadata=metadata,
         )
 
+        logger.info("Ingested '%s' (%d chunks) as %s", file.filename, chunk_count, doc_id)
         return IngestResponse(
             document_id=doc_id,
             filename=file.filename,
@@ -73,25 +79,26 @@ async def upload_document(file: UploadFile):
         )
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.exception("Failed to ingest document '%s'", file.filename)
+        raise HTTPException(status_code=500, detail="Failed to process document")
     finally:
-        # Clean up uploaded file
         if os.path.exists(file_path):
             os.remove(file_path)
 
 
 @router.get("/documents", response_model=list[DocumentInfo])
-def list_documents():
+async def list_documents():
     """List all ingested documents."""
     docs = vector_store.list_documents()
     return [DocumentInfo(**d) for d in docs]
 
 
 @router.delete("/documents/{doc_id}", response_model=DeleteResponse)
-def delete_document(doc_id: str):
+async def delete_document(doc_id: str):
     """Delete a document and all its chunks."""
     deleted = vector_store.delete_document(doc_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Document not found")
+    logger.info("Deleted document %s", doc_id)
     return DeleteResponse(message=f"Document {doc_id} deleted successfully")

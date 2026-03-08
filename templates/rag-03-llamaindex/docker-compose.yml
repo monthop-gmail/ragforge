@@ -9,6 +9,12 @@ services:
       - chroma_data:/app/data/chroma
       - upload_data:/app/uploads
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   mcp-server:
     build: .
@@ -16,7 +22,8 @@ services:
     ports:
       - "8001:8001"
     depends_on:
-      - rag-server
+      rag-server:
+        condition: service_healthy
     environment:
       - RAG_API_URL=http://rag-server:8000
     restart: unless-stopped

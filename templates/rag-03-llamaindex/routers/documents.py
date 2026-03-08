@@ -1,3 +1,4 @@
+import logging
 import os
 import uuid
 
@@ -9,9 +10,11 @@ from models import DeleteResponse, DocumentInfo, IngestResponse
 from services import loaders, vector_store
 from services.index import get_storage_context
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 ALLOWED_EXTENSIONS = {".pdf", ".txt", ".md"}
+MAX_UPLOAD_BYTES = settings.max_upload_size_mb * 1024 * 1024
 
 
 @router.post("/upload", response_model=IngestResponse)
@@ -24,19 +27,24 @@ async def upload_document(file: UploadFile):
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(
             status_code=400,
-            detail=f"Unsupported file type: {ext}. Allowed: {ALLOWED_EXTENSIONS}",
+            detail=f"Unsupported file type: {ext}. Allowed: {', '.join(ALLOWED_EXTENSIONS)}",
+        )
+
+    content = await file.read()
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large. Max size: {settings.max_upload_size_mb}MB",
         )
 
     doc_id = str(uuid.uuid4())
     os.makedirs(settings.upload_dir, exist_ok=True)
     file_path = os.path.join(settings.upload_dir, f"{doc_id}_{file.filename}")
 
-    content = await file.read()
     with open(file_path, "wb") as f:
         f.write(content)
 
     try:
-        # Load documents
         if ext == ".pdf":
             docs, metadata = loaders.load_pdf(file_path)
         else:
@@ -45,22 +53,19 @@ async def upload_document(file: UploadFile):
         if not docs:
             raise HTTPException(status_code=400, detail="Document contains no text")
 
-        # Add document_id to metadata for tracking
         for doc in docs:
             doc.metadata.update(metadata)
             doc.metadata["document_id"] = doc_id
 
-        # Index documents (LlamaIndex handles chunking + embedding + storing)
         storage_context = get_storage_context()
         VectorStoreIndex.from_documents(
             documents=docs,
             storage_context=storage_context,
         )
 
-        # Count chunks stored
-        collection = vector_store.get_chroma_collection() if hasattr(vector_store, 'get_chroma_collection') else None
-        chunk_count = len(docs)  # approximate
+        chunk_count = len(docs)
 
+        logger.info("Ingested '%s' (%d chunks) as %s", file.filename, chunk_count, doc_id)
         return IngestResponse(
             document_id=doc_id,
             filename=file.filename,
@@ -69,24 +74,26 @@ async def upload_document(file: UploadFile):
         )
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.exception("Failed to ingest document '%s'", file.filename)
+        raise HTTPException(status_code=500, detail="Failed to process document")
     finally:
         if os.path.exists(file_path):
             os.remove(file_path)
 
 
 @router.get("/documents", response_model=list[DocumentInfo])
-def list_documents():
+async def list_documents():
     """List all ingested documents."""
     docs = vector_store.list_documents()
     return [DocumentInfo(**d) for d in docs]
 
 
 @router.delete("/documents/{doc_id}", response_model=DeleteResponse)
-def delete_document(doc_id: str):
+async def delete_document(doc_id: str):
     """Delete a document and all its chunks."""
     deleted = vector_store.delete_document(doc_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Document not found")
+    logger.info("Deleted document %s", doc_id)
     return DeleteResponse(message=f"Document {doc_id} deleted successfully")

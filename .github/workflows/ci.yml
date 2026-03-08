@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install ruff
+      - name: Lint templates
+        run: ruff check templates/
+
+  test-template-01:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -r templates/rag-01-no-framework/requirements.txt
+      - name: Check imports
+        run: python -c "import main"
+        working-directory: templates/rag-01-no-framework
+
+  test-ragforge-cli:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Test list command
+        run: python ragforge.py list
+      - name: Test new command
+        run: |
+          echo "" | python ragforge.py new test-project -t 1
+          test -f projects/test-project/main.py
+          test -f projects/test-project/.env
+          test -f projects/test-project/mcp_server.py
+
+  docker-build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        template: [rag-01-no-framework, rag-02-langchain, rag-03-llamaindex]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Docker image
+        run: docker build -t ragforge-${{ matrix.template }} templates/${{ matrix.template }}/

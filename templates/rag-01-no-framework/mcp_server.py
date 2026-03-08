@@ -7,8 +7,9 @@ import httpx
 from mcp.server.fastmcp import FastMCP
 
 RAG_API_URL = os.environ.get("RAG_API_URL", "http://localhost:8000")
+MCP_PORT = int(os.environ.get("MCP_PORT", "8001"))
 
-mcp = FastMCP("RagForge", host="0.0.0.0", port=8001)
+mcp = FastMCP("RagForge", host="0.0.0.0", port=MCP_PORT)
 
 
 def _url(path: str) -> str:
@@ -18,10 +19,13 @@ def _url(path: str) -> str:
 @mcp.tool()
 async def rag_query(question: str, top_k: int = 5) -> str:
     """Ask a question to the RAG knowledge base. Returns an answer based on ingested documents."""
-    async with httpx.AsyncClient(timeout=60) as client:
-        resp = await client.post(_url("/query"), json={"question": question, "top_k": top_k})
-        resp.raise_for_status()
-        data = resp.json()
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.post(_url("/query"), json={"question": question, "top_k": top_k})
+            resp.raise_for_status()
+            data = resp.json()
+    except httpx.HTTPError as e:
+        return f"Error: RAG service unavailable - {e}"
 
     answer = data["answer"]
     sources = data.get("sources", [])
@@ -41,11 +45,14 @@ async def rag_query(question: str, top_k: int = 5) -> str:
 @mcp.tool()
 async def rag_upload_text(content: str, filename: str = "document.txt") -> str:
     """Upload text content to the RAG knowledge base. Use this to add new knowledge."""
-    async with httpx.AsyncClient(timeout=60) as client:
-        files = {"file": (filename, io.BytesIO(content.encode("utf-8")), "text/plain")}
-        resp = await client.post(_url("/upload"), files=files)
-        resp.raise_for_status()
-        data = resp.json()
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            files = {"file": (filename, io.BytesIO(content.encode("utf-8")), "text/plain")}
+            resp = await client.post(_url("/upload"), files=files)
+            resp.raise_for_status()
+            data = resp.json()
+    except httpx.HTTPError as e:
+        return f"Error: Failed to upload - {e}"
 
     return f"Uploaded '{data['filename']}' - {data['chunk_count']} chunks indexed (ID: {data['document_id']})"
 
@@ -53,10 +60,13 @@ async def rag_upload_text(content: str, filename: str = "document.txt") -> str:
 @mcp.tool()
 async def rag_ingest_url(url: str) -> str:
     """Ingest content from a URL into the RAG knowledge base."""
-    async with httpx.AsyncClient(timeout=60) as client:
-        resp = await client.post(_url("/ingest-url"), json={"url": url})
-        resp.raise_for_status()
-        data = resp.json()
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.post(_url("/ingest-url"), json={"url": url})
+            resp.raise_for_status()
+            data = resp.json()
+    except httpx.HTTPError as e:
+        return f"Error: Failed to ingest URL - {e}"
 
     return f"Ingested '{data['filename']}' - {data['chunk_count']} chunks indexed (ID: {data['document_id']})"
 
@@ -64,10 +74,13 @@ async def rag_ingest_url(url: str) -> str:
 @mcp.tool()
 async def rag_list_documents() -> str:
     """List all documents in the RAG knowledge base."""
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.get(_url("/documents"))
-        resp.raise_for_status()
-        docs = resp.json()
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.get(_url("/documents"))
+            resp.raise_for_status()
+            docs = resp.json()
+    except httpx.HTTPError as e:
+        return f"Error: RAG service unavailable - {e}"
 
     if not docs:
         return "No documents in the knowledge base."
@@ -82,11 +95,14 @@ async def rag_list_documents() -> str:
 @mcp.tool()
 async def rag_delete_document(document_id: str) -> str:
     """Delete a document from the RAG knowledge base by its ID."""
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.delete(_url(f"/documents/{document_id}"))
-        if resp.status_code == 404:
-            return f"Document {document_id} not found."
-        resp.raise_for_status()
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.delete(_url(f"/documents/{document_id}"))
+            if resp.status_code == 404:
+                return f"Document {document_id} not found."
+            resp.raise_for_status()
+    except httpx.HTTPError as e:
+        return f"Error: Failed to delete - {e}"
 
     return f"Document {document_id} deleted successfully."
 

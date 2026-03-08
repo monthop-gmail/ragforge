@@ -1,3 +1,4 @@
+import logging
 import uuid
 
 from fastapi import APIRouter, HTTPException
@@ -7,6 +8,7 @@ from config import settings
 from models import IngestResponse, IngestURLRequest, QueryRequest, QueryResponse, SourceInfo
 from services import loaders, rag, vector_store
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _splitter = RecursiveCharacterTextSplitter(
@@ -16,7 +18,7 @@ _splitter = RecursiveCharacterTextSplitter(
 
 
 @router.post("/query", response_model=QueryResponse)
-def query_documents(req: QueryRequest):
+async def query_documents(req: QueryRequest):
     """Ask a question using RAG."""
     try:
         result = rag.ask(question=req.question, top_k=req.top_k)
@@ -24,12 +26,13 @@ def query_documents(req: QueryRequest):
             answer=result["answer"],
             sources=[SourceInfo(**s) for s in result["sources"]],
         )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.exception("Query failed for: %s", req.question[:100])
+        raise HTTPException(status_code=500, detail="Failed to process query")
 
 
 @router.post("/ingest-url", response_model=IngestResponse)
-def ingest_url(req: IngestURLRequest):
+async def ingest_url(req: IngestURLRequest):
     """Ingest content from a URL."""
     try:
         docs, metadata = loaders.load_url(req.url)
@@ -47,6 +50,7 @@ def ingest_url(req: IngestURLRequest):
             metadata=metadata,
         )
 
+        logger.info("Ingested URL '%s' (%d chunks) as %s", req.url, chunk_count, doc_id)
         return IngestResponse(
             document_id=doc_id,
             filename=metadata.get("filename", req.url),
@@ -55,5 +59,8 @@ def ingest_url(req: IngestURLRequest):
         )
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        logger.exception("Failed to ingest URL: %s", req.url)
+        raise HTTPException(status_code=500, detail="Failed to ingest URL")

@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class QueryRequest(BaseModel):
@@ -10,7 +10,7 @@ class SourceInfo(BaseModel):
     id: str
     chunk_text: str
     score: float | None = None
-    metadata: dict = {}
+    metadata: dict = Field(default_factory=dict)
 
 
 class QueryResponse(BaseModel):
