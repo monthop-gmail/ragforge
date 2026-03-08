@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     chroma_path: str = "./data/chroma"
     upload_dir: str = "./uploads"
     top_k: int = Field(default=5, gt=0, le=100)
+    rrf_k: int = Field(default=60, gt=0)
     max_upload_size_mb: int = Field(default=50, gt=0, le=500)
 
 

@@ -3,6 +3,9 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 
 from config import settings
+from models import SearchMode
+from services.hybrid_search import reciprocal_rank_fusion
+from services.keyword_search import search as keyword_search
 from services.vector_store import query as vector_query
 
 _llm = ChatOpenAI(
@@ -26,12 +29,25 @@ _prompt = ChatPromptTemplate.from_messages(
 _chain = _prompt | _llm | StrOutputParser()
 
 
-def ask(question: str, top_k: int | None = None) -> dict:
+def _retrieve(question: str, top_k: int, search_mode: SearchMode) -> list[dict]:
+    """Retrieve relevant chunks using the specified search mode."""
+    if search_mode == SearchMode.vector:
+        return vector_query(question, top_k)
+
+    if search_mode == SearchMode.keyword:
+        return keyword_search(question, top_k)
+
+    # hybrid
+    vector_results = vector_query(question, top_k)
+    keyword_results = keyword_search(question, top_k)
+    return reciprocal_rank_fusion(vector_results, keyword_results)[:top_k]
+
+
+def ask(question: str, top_k: int | None = None, search_mode: SearchMode = SearchMode.hybrid) -> dict:
     """Run the full RAG pipeline using LangChain LCEL."""
     k = top_k or settings.top_k
 
-    # 1. Retrieve relevant chunks (embedding is handled by vector_store)
-    results = vector_query(question, k)
+    results = _retrieve(question, k, search_mode)
 
     if not results:
         return {
@@ -39,14 +55,14 @@ def ask(question: str, top_k: int | None = None) -> dict:
             "sources": [],
         }
 
-    # 2. Build context
+    # Build context
     context_parts = []
     for i, r in enumerate(results, 1):
         filename = r["metadata"].get("filename", "unknown")
         context_parts.append(f"[Source {i}] ({filename}):\n{r['chunk_text']}")
     context = "\n\n".join(context_parts)
 
-    # 3. Run chain
+    # Run chain
     answer = _chain.invoke({"context": context, "question": question})
 
     return {

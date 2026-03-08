@@ -1,6 +1,22 @@
 from services.index import get_chroma_collection
 
 
+def get_all_chunks() -> list[dict]:
+    """Get all chunks from the store for BM25 indexing."""
+    collection = get_chroma_collection()
+    all_data = collection.get()
+    if not all_data["ids"]:
+        return []
+    chunks = []
+    for i, chunk_id in enumerate(all_data["ids"]):
+        chunks.append({
+            "id": chunk_id,
+            "chunk_text": all_data["documents"][i],
+            "metadata": all_data["metadatas"][i],
+        })
+    return chunks
+
+
 def list_documents() -> list[dict]:
     """List all unique documents in the store."""
     collection = get_chroma_collection()

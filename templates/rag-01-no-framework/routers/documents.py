@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, UploadFile
 
 from config import settings
 from models import DeleteResponse, DocumentInfo, IngestResponse
-from services import chunker, embeddings, loaders, vector_store
+from services import chunker, embeddings, keyword_search, loaders, vector_store
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -70,6 +70,7 @@ async def upload_document(file: UploadFile):
             metadata=metadata,
         )
 
+        keyword_search.build_index()
         logger.info("Ingested '%s' (%d chunks) as %s", file.filename, chunk_count, doc_id)
         return IngestResponse(
             document_id=doc_id,
@@ -100,5 +101,6 @@ async def delete_document(doc_id: str):
     deleted = vector_store.delete_document(doc_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Document not found")
+    keyword_search.build_index()
     logger.info("Deleted document %s", doc_id)
     return DeleteResponse(message=f"Document {doc_id} deleted successfully")

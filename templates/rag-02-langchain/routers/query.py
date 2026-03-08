@@ -6,7 +6,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from config import settings
 from models import IngestResponse, IngestURLRequest, QueryRequest, QueryResponse, SourceInfo
-from services import loaders, rag, vector_store
+from services import keyword_search, loaders, rag, vector_store
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -21,7 +21,7 @@ _splitter = RecursiveCharacterTextSplitter(
 async def query_documents(req: QueryRequest):
     """Ask a question using RAG."""
     try:
-        result = rag.ask(question=req.question, top_k=req.top_k)
+        result = rag.ask(question=req.question, top_k=req.top_k, search_mode=req.search_mode)
         return QueryResponse(
             answer=result["answer"],
             sources=[SourceInfo(**s) for s in result["sources"]],
@@ -50,6 +50,7 @@ async def ingest_url(req: IngestURLRequest):
             metadata=metadata,
         )
 
+        keyword_search.build_index()
         logger.info("Ingested URL '%s' (%d chunks) as %s", req.url, chunk_count, doc_id)
         return IngestResponse(
             document_id=doc_id,

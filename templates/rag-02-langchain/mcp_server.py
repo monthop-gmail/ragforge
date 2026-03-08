@@ -17,11 +17,11 @@ def _url(path: str) -> str:
 
 
 @mcp.tool()
-async def rag_query(question: str, top_k: int = 5) -> str:
-    """Ask a question to the RAG knowledge base. Returns an answer based on ingested documents."""
+async def rag_query(question: str, top_k: int = 5, search_mode: str = "hybrid") -> str:
+    """Ask a question to the RAG knowledge base. search_mode: 'vector', 'keyword', or 'hybrid' (default)."""
     try:
         async with httpx.AsyncClient(timeout=60) as client:
-            resp = await client.post(_url("/query"), json={"question": question, "top_k": top_k})
+            resp = await client.post(_url("/query"), json={"question": question, "top_k": top_k, "search_mode": search_mode})
             resp.raise_for_status()
             data = resp.json()
     except httpx.HTTPError as e:

@@ -1,9 +1,18 @@
+from enum import Enum
+
 from pydantic import BaseModel, Field
+
+
+class SearchMode(str, Enum):
+    vector = "vector"
+    keyword = "keyword"
+    hybrid = "hybrid"
 
 
 class QueryRequest(BaseModel):
     question: str
     top_k: int | None = None
+    search_mode: SearchMode = SearchMode.hybrid
 
 
 class SourceInfo(BaseModel):
