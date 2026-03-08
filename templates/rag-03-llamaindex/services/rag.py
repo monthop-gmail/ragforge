@@ -1,6 +1,5 @@
 from llama_index.core import Settings as LlamaSettings
 from llama_index.core.prompts import PromptTemplate
-from llama_index.core.response_synthesizers import get_response_synthesizer
 
 from config import settings
 from models import SearchMode

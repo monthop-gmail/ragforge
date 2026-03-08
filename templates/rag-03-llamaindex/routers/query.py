@@ -4,9 +4,8 @@ import uuid
 from fastapi import APIRouter, HTTPException
 from llama_index.core import VectorStoreIndex
 
-from config import settings
 from models import IngestResponse, IngestURLRequest, QueryRequest, QueryResponse, SourceInfo
-from services import keyword_search, loaders, rag, vector_store
+from services import keyword_search, loaders, rag
 from services.index import get_storage_context
 
 logger = logging.getLogger(__name__)
